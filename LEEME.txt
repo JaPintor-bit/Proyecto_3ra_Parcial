@@ -1,0 +1,22 @@
+SISTEMA DE GESTIÓN DE TALLER (A_2) - CÓMO EJECUTARLO EN VISUAL STUDIO
+=====================================================================
+
+Requisitos (Windows)
+  - Visual Studio 2026 (o una versión reciente compatible con .NET 10 y archivos .slnx)
+    con la carga de trabajo "Desarrollo de ASP.NET y web".
+  - SQL Server Express LocalDB (se instala junto con esa carga de trabajo).
+
+Pasos
+  1. Extrae el .zip completo en una carpeta normal (por ejemplo Documentos\A_2).
+     No lo abras desde dentro del .zip.
+  2. Abre A_2.slnx con doble clic (o Archivo > Abrir > Proyecto o solución).
+  3. Presiona F5 (o el botón verde "https").
+
+Al iniciar, la aplicación crea la base TallerDB en LocalDB y aplica las migraciones
+automáticamente; no hace falta ejecutar Update-Database.
+
+La primera vez Visual Studio puede pedir que confíes en el certificado de desarrollo HTTPS:
+responde "Sí". Si prefieres evitarlo, elige el perfil "http" junto al botón de ejecutar.
+
+Si ya tenías una base TallerDB de la versión anterior, la migración
+FechasTipadasYRestricciones convierte Fecha y Hora sin borrar tus registros.

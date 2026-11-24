@@ -1,0 +1,157 @@
+@page "/clasificaciones"
+@rendermode InteractiveServer
+@inject IRepositorioClasificaciones _repoClasificaciones
+@inject IJSRuntime _js
+
+<PageTitle>Clasificaciones - Agenda Taller</PageTitle>
+
+<div class="container py-3" style="max-width: 800px;">
+    <div class="mb-4">
+        <h2 class="fw-bold mb-0">🏷️ Clasificaciones</h2>
+        <small class="text-muted">Categorías para organizar el inventario de herramientas</small>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="alert alert-danger alert-dismissible" role="alert">
+            @_error
+            <button type="button" class="btn-close" @onclick="() => _error = null"></button>
+        </div>
+    }
+
+    <!-- Alta / edición -->
+    <div class="card shadow-sm border p-3 mb-4 bg-white">
+        <EditForm Model="_formulario" OnValidSubmit="Guardar">
+            <DataAnnotationsValidator />
+            <label for="txtNombreClasif" class="form-label fw-bold">
+                @(_formulario.Id == 0 ? "Nueva clasificación" : "Editar clasificación")
+            </label>
+            <div class="d-flex gap-2">
+                <InputText id="txtNombreClasif" class="form-control" @bind-Value="_formulario.Nombre" placeholder="Ej. Pintura y Acabados" />
+                <button type="submit" class="btn btn-primary text-nowrap">
+                    @(_formulario.Id == 0 ? "➕ Agregar" : "💾 Guardar")
+                </button>
+                @if (_formulario.Id != 0)
+                {
+                    <button type="button" class="btn btn-secondary" @onclick="CancelarEdicion">Cancelar</button>
+                }
+            </div>
+            <ValidationMessage For="@(() => _formulario.Nombre)" class="text-danger small" />
+        </EditForm>
+    </div>
+
+    @if (_cargando)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive shadow-sm rounded border bg-white">
+            <table class="table table-striped table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Herramientas</th>
+                        <th class="text-end" style="width: 120px;">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _clasificaciones)
+                    {
+                        var total = _conteo.GetValueOrDefault(c.Id, 0);
+                        <tr>
+                            <td><strong>@c.Nombre</strong></td>
+                            <td><span class="badge bg-secondary">@total</span></td>
+                            <td class="text-end">
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-primary" @onclick="() => Editar(c)" title="Editar">✏️</button>
+                                    <button class="btn btn-outline-danger" @onclick="() => Eliminar(c)" title="@(total > 0 ? "Tiene herramientas: no se puede eliminar" : "Eliminar")" disabled="@(total > 0)">🗑️</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _cargando = true;
+    private string? _error;
+    private List<Clasificacion> _clasificaciones = new();
+    private Dictionary<int, int> _conteo = new();
+    private Clasificacion _formulario = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatos();
+    }
+
+    private async Task CargarDatos()
+    {
+        _cargando = true;
+        try
+        {
+            _clasificaciones = await _repoClasificaciones.GetAll();
+            _conteo = await _repoClasificaciones.ContarHerramientasPorClasificacion();
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private void Editar(Clasificacion c)
+    {
+        _error = null;
+        _formulario = new Clasificacion { Id = c.Id, Nombre = c.Nombre };
+    }
+
+    private void CancelarEdicion()
+    {
+        _formulario = new Clasificacion();
+    }
+
+    private async Task Guardar()
+    {
+        _error = null;
+        try
+        {
+            if (_formulario.Id == 0)
+                await _repoClasificaciones.Add(_formulario);
+            else
+                await _repoClasificaciones.Update(_formulario);
+
+            _formulario = new Clasificacion();
+            await CargarDatos();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+            if (_formulario.Id != 0 && !_clasificaciones.Any(c => c.Id == _formulario.Id))
+                _formulario = new Clasificacion();
+        }
+    }
+
+    private async Task Eliminar(Clasificacion c)
+    {
+        if (!await _js.InvokeAsync<bool>("confirm", $"¿Eliminar la clasificación \"{c.Nombre}\"?")) return;
+
+        _error = null;
+        try
+        {
+            await _repoClasificaciones.Delete(c.Id);
+            if (_formulario.Id == c.Id) _formulario = new Clasificacion();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        await CargarDatos();
+    }
+}

@@ -1,0 +1,175 @@
+@* Selector de herramientas y materiales que usan las páginas Nuevo y Editar encargo.
+   - Objetos múltiples: permite elegir de 1 hasta las piezas disponibles (stock en bodega + las que
+     este encargo ya tenía apartadas). Si no hay piezas, no se puede seleccionar.
+   - Herramientas únicas: no se pueden seleccionar si ya están asignadas a otro encargo pendiente
+     o si su estado (En reparación, Prestada, Perdida, Dañada) impide usarlas.
+   El repositorio vuelve a validar todo al guardar; esto solo evita que el usuario elija algo inválido. *@
+
+@if (Herramientas.Any())
+{
+    <div class="list-group mb-4">
+        @foreach (var herr in Herramientas)
+        {
+            var seleccionada = Seleccionadas.ContainsKey(herr.Id);
+            var cantidadSeleccionada = seleccionada ? Seleccionadas[herr.Id] : 0;
+            var yaAsignadas = Originales.GetValueOrDefault(herr.Id, 0);
+            var estabaEnEsteEncargo = Originales.ContainsKey(herr.Id);
+            var maxPermitido = herr.CantidadActual + yaAsignadas;
+            var motivoBloqueo = MotivoBloqueo(herr, estabaEnEsteEncargo, maxPermitido);
+            var deshabilitada = !seleccionada && motivoBloqueo != null;
+
+            <div class="list-group-item @(seleccionada ? "list-group-item-light border-primary" : "") @(deshabilitada ? "bg-light" : "") p-3">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="form-check">
+                        <input type="checkbox"
+                               class="form-check-input"
+                               id="herr_@herr.Id"
+                               checked="@seleccionada"
+                               disabled="@deshabilitada"
+                               @onchange="(e) => ToggleHerramienta(herr, (bool)(e.Value ?? false), maxPermitido)" />
+                        <label class="form-check-label fw-bold ms-2 @(deshabilitada ? "text-muted" : "")" for="herr_@herr.Id">
+                            @herr.Nombre
+                        </label>
+                        <span class="badge bg-secondary ms-2">@(herr.Clasificacion?.Nombre ?? "General")</span>
+                        @if (deshabilitada)
+                        {
+                            <div class="small text-danger ms-4">@motivoBloqueo</div>
+                        }
+                    </div>
+
+                    <div class="text-end">
+                        @if (herr.EsMultiple)
+                        {
+                            <span class="badge @(maxPermitido > 0 ? "bg-success" : "bg-danger")">
+                                Disponibles: @maxPermitido
+                            </span>
+                            @if (yaAsignadas > 0)
+                            {
+                                <div><small class="text-muted">(@herr.CantidadActual en bodega + @yaAsignadas apartadas)</small></div>
+                            }
+                        }
+                        else
+                        {
+                            <span class="badge @(herr.Estado == EstadosHerramienta.Disponible ? "bg-success" : "bg-info text-dark")">
+                                Estado: @herr.Estado
+                            </span>
+                        }
+                    </div>
+                </div>
+
+                @if (herr.EsMultiple && seleccionada)
+                {
+                    <div class="mt-3 ps-4 border-start border-primary border-3 ms-2">
+                        <label class="form-label small fw-bold text-primary">¿Cuántas piezas se utilizarán?:</label>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-outline-secondary" @onclick="() => AjustarCantidad(herr.Id, -10, maxPermitido)">-10</button>
+                                <button type="button" class="btn btn-outline-secondary" @onclick="() => AjustarCantidad(herr.Id, -5, maxPermitido)">-5</button>
+                                <button type="button" class="btn btn-outline-secondary" @onclick="() => AjustarCantidad(herr.Id, -1, maxPermitido)">-1</button>
+                            </div>
+
+                            <input type="number"
+                                   class="form-control form-control-sm text-center fw-bold"
+                                   style="width: 80px;"
+                                   min="1"
+                                   max="@maxPermitido"
+                                   value="@cantidadSeleccionada"
+                                   @onchange="(e) => FijarCantidadManual(herr.Id, e.Value?.ToString(), maxPermitido)" />
+
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-outline-secondary" @onclick="() => AjustarCantidad(herr.Id, +1, maxPermitido)">+1</button>
+                                <button type="button" class="btn btn-outline-secondary" @onclick="() => AjustarCantidad(herr.Id, +5, maxPermitido)">+5</button>
+                                <button type="button" class="btn btn-outline-secondary" @onclick="() => AjustarCantidad(herr.Id, +10, maxPermitido)">+10</button>
+                            </div>
+
+                            <span class="small text-muted ms-2">(Máximo disponible: @maxPermitido)</span>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="alert alert-light border text-muted small mb-4">
+        No hay herramientas registradas en el inventario. Puedes guardar el encargo y agregar herramientas después.
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public List<Herramienta> Herramientas { get; set; } = new();
+
+    // HerramientaId -> cantidad elegida (0 para herramientas únicas). La página que usa el
+    // componente lee este diccionario al guardar.
+    [Parameter, EditorRequired]
+    public Dictionary<int, int> Seleccionadas { get; set; } = new();
+
+    // Lo que el encargo tenía asignado antes de editarlo (vacío para un encargo nuevo).
+    [Parameter]
+    public Dictionary<int, int> Originales { get; set; } = new();
+
+    // Id del encargo que se edita (0 para uno nuevo).
+    [Parameter]
+    public int EncargoId { get; set; }
+
+    private string? MotivoBloqueo(Herramienta herr, bool estabaEnEsteEncargo, int maxPermitido)
+    {
+        if (herr.EsMultiple)
+        {
+            return maxPermitido <= 0 ? "Sin piezas en bodega." : null;
+        }
+
+        if (estabaEnEsteEncargo)
+        {
+            return null; // ya estaba reservada para este encargo
+        }
+
+        var otroEncargo = herr.EncargoHerramientas?
+            .Where(eh => eh.EncargoId != EncargoId && eh.Encargo != null && !eh.Encargo.IsCompleted)
+            .Select(eh => eh.Encargo)
+            .FirstOrDefault();
+
+        if (otroEncargo != null)
+        {
+            return $"Asignada al encargo de {otroEncargo.Cliente}.";
+        }
+
+        if (!EstadosHerramienta.PermiteAsignar(herr.Estado))
+        {
+            return $"No disponible: {herr.Estado}.";
+        }
+
+        return null;
+    }
+
+    private void ToggleHerramienta(Herramienta herr, bool seleccionada, int maxPermitido)
+    {
+        if (seleccionada)
+        {
+            if (herr.EsMultiple && maxPermitido <= 0) return;
+            Seleccionadas[herr.Id] = herr.EsMultiple ? 1 : 0;
+        }
+        else
+        {
+            Seleccionadas.Remove(herr.Id);
+        }
+    }
+
+    private void AjustarCantidad(int herrId, int delta, int maxPermitido)
+    {
+        if (Seleccionadas.TryGetValue(herrId, out var actual) && maxPermitido > 0)
+        {
+            Seleccionadas[herrId] = Math.Clamp(actual + delta, 1, maxPermitido);
+        }
+    }
+
+    private void FijarCantidadManual(int herrId, string? input, int maxPermitido)
+    {
+        if (int.TryParse(input, out int valor) && maxPermitido > 0)
+        {
+            Seleccionadas[herrId] = Math.Clamp(valor, 1, maxPermitido);
+        }
+    }
+}

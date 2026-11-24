@@ -1,0 +1,307 @@
+@page "/encargos"
+@rendermode InteractiveServer
+@inject IRepositorioEncargos _repoEncargos
+@inject NavigationManager _navigation
+@inject IJSRuntime _js
+
+<PageTitle>Encargos de Trabajo - Agenda Taller</PageTitle>
+
+<div class="container py-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-0">📋 Encargos de Trabajo</h2>
+            <small class="text-muted">Gestiona los trabajos solicitados por los clientes y las herramientas asignadas</small>
+        </div>
+        <div>
+            <button class="btn btn-primary" @onclick='() => _navigation.NavigateTo("encargos/nuevo")'>
+                ➕ Nuevo Encargo
+            </button>
+        </div>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="alert alert-danger alert-dismissible" role="alert">
+            @_error
+            <button type="button" class="btn-close" @onclick="() => _error = null"></button>
+        </div>
+    }
+
+    <!-- Pestañas de filtro -->
+    <ul class="nav nav-pills mb-3">
+        <li class="nav-item">
+            <button class="nav-link @(_mostrarHistorial ? "" : "active")" @onclick="() => _mostrarHistorial = false">
+                ⏳ Pendientes (@_listaPendientes.Count)
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(_mostrarHistorial ? "active" : "")" @onclick="() => _mostrarHistorial = true">
+                ✅ Realizados / Historial (@_listaCompletados.Count)
+            </button>
+        </li>
+    </ul>
+
+    @if (_cargando)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+            <p class="mt-2 text-muted">Cargando encargos...</p>
+        </div>
+    }
+    else
+    {
+        var listaActual = _mostrarHistorial ? _listaCompletados : _listaPendientes;
+
+        @if (!listaActual.Any())
+        {
+            <div class="alert alert-info text-center py-4">
+                <h5>@(_mostrarHistorial ? "No hay encargos en el historial." : "No hay encargos pendientes 🎉")</h5>
+                <p class="mb-0 text-muted">
+                    @(_mostrarHistorial ? "Los encargos marcados como completados aparecerán aquí." : "Haz clic en 'Nuevo Encargo' para registrar el primero.")
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive shadow-sm rounded border bg-white">
+                <table class="table table-striped table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 50px;">Listo</th>
+                            <th>Cliente</th>
+                            <th>Trabajo</th>
+                            <th>Fecha</th>
+                            <th>Hora</th>
+                            <th>Herramientas / Materiales</th>
+                            <th class="text-end" style="width: 180px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var encargo in listaActual)
+                        {
+                            <tr class="@(encargo.IsCompleted ? "table-secondary text-muted" : "")">
+                                <td class="text-center">
+                                    <input type="checkbox"
+                                           class="form-check-input"
+                                           checked="@encargo.IsCompleted"
+                                           @onchange="() => CambiarEstado(encargo.Id)"
+                                           title="Marcar como @(encargo.IsCompleted ? "pendiente" : "realizado")" />
+                                </td>
+                                <td>
+                                    <strong class="@(encargo.IsCompleted ? "text-decoration-line-through text-muted" : "")">
+                                        @encargo.Cliente
+                                    </strong>
+                                </td>
+                                <td>
+                                    <span class="@(encargo.IsCompleted ? "text-decoration-line-through text-muted" : "")">
+                                        @encargo.TipoTrabajo
+                                    </span>
+                                </td>
+                                <td>📅 @encargo.Fecha.ToString("dd/MM/yyyy")</td>
+                                <td>⏰ @encargo.Hora.ToString("hh:mm tt")</td>
+                                <td>
+                                    @if (encargo.EncargoHerramientas != null && encargo.EncargoHerramientas.Any())
+                                    {
+                                        <button class="btn btn-sm btn-outline-info" @onclick="() => VerDetalles(encargo)">
+                                            🛠️ @encargo.EncargoHerramientas.Count herramienta(s)
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">Sin herramientas</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-secondary" @onclick="() => VerDetalles(encargo)" title="Ver detalles">
+                                            🔍
+                                        </button>
+                                        @if (!encargo.IsCompleted)
+                                        {
+                                            <button class="btn btn-outline-primary" @onclick='() => _navigation.NavigateTo($"encargos/editar/{encargo.Id}")' title="Editar encargo">
+                                                ✏️
+                                            </button>
+                                        }
+                                        <button class="btn btn-outline-danger" @onclick="() => Eliminar(encargo)" title="Eliminar">
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+<!-- Modal de Detalles del Encargo -->
+@if (_encargoDetalle != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content shadow">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">📋 Detalles del Encargo</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CerrarDetalles"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="text-muted small">Cliente:</label>
+                            <h4>@_encargoDetalle.Cliente</h4>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="text-muted small">Estado:</label>
+                            <div>
+                                @if (_encargoDetalle.IsCompleted)
+                                {
+                                    <span class="badge bg-success fs-6">Completado ✅</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark fs-6">Pendiente ⏳</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="text-muted small">Trabajo solicitado:</label>
+                        <p class="fs-5 mb-0">@_encargoDetalle.TipoTrabajo</p>
+                    </div>
+
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <label class="text-muted small">Fecha programada:</label>
+                            <p class="fw-bold">📅 @_encargoDetalle.Fecha.ToString("dd/MM/yyyy")</p>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="text-muted small">Hora:</label>
+                            <p class="fw-bold">⏰ @_encargoDetalle.Hora.ToString("hh:mm tt")</p>
+                        </div>
+                    </div>
+
+                    <hr />
+
+                    <h5 class="fw-bold mb-3">🛠️ Herramientas y Materiales Asignados:</h5>
+
+                    @if (_encargoDetalle.EncargoHerramientas == null || !_encargoDetalle.EncargoHerramientas.Any())
+                    {
+                        <p class="text-muted fst-italic">No se asignaron herramientas a este encargo.</p>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var item in _encargoDetalle.EncargoHerramientas)
+                            {
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="mb-1">@(item.Herramienta?.Nombre ?? "Herramienta")</h6>
+                                        <small class="text-muted">
+                                            @(item.Herramienta?.EsMultiple == true ? "Objeto múltiple" : $"Herramienta simple (Estado: {item.Herramienta?.Estado})")
+                                        </small>
+                                    </div>
+                                    @if (item.Herramienta?.EsMultiple == true)
+                                    {
+                                        <span class="badge bg-primary rounded-pill fs-6">
+                                            @item.CantidadUsada unidades
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary rounded-pill">
+                                            Asignada
+                                        </span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CerrarDetalles">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _cargando = true;
+    private bool _mostrarHistorial = false;
+    private List<Encargo> _todosLosEncargos = new();
+    private List<Encargo> _listaPendientes = new();
+    private List<Encargo> _listaCompletados = new();
+    private Encargo? _encargoDetalle = null;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarEncargos();
+    }
+
+    private async Task CargarEncargos()
+    {
+        _cargando = true;
+        try
+        {
+            _todosLosEncargos = await _repoEncargos.GetAll();
+            _listaPendientes = _todosLosEncargos.Where(e => !e.IsCompleted).ToList();
+            _listaCompletados = _todosLosEncargos.Where(e => e.IsCompleted).ToList();
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private async Task CambiarEstado(int id)
+    {
+        _error = null;
+        try
+        {
+            await _repoEncargos.ToggleComplete(id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Ej.: al regresar a pendiente, una herramienta única ya está asignada a otro encargo.
+            _error = ex.Message;
+        }
+        await CargarEncargos();
+    }
+
+    private async Task Eliminar(Encargo encargo)
+    {
+        var mensaje = encargo.IsCompleted
+            ? $"¿Eliminar el encargo de {encargo.Cliente}? Ya está completado, así que el material usado no regresa a bodega."
+            : $"¿Eliminar el encargo pendiente de {encargo.Cliente}? Las piezas apartadas regresarán a bodega y las herramientas quedarán disponibles.";
+
+        if (!await _js.InvokeAsync<bool>("confirm", mensaje)) return;
+
+        _error = null;
+        try
+        {
+            await _repoEncargos.Delete(encargo.Id);
+            if (_encargoDetalle?.Id == encargo.Id) _encargoDetalle = null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+        }
+        await CargarEncargos();
+    }
+
+    private void VerDetalles(Encargo encargo)
+    {
+        _encargoDetalle = encargo;
+    }
+
+    private void CerrarDetalles()
+    {
+        _encargoDetalle = null;
+    }
+}

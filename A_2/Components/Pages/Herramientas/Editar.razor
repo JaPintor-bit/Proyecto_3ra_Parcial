@@ -1,0 +1,281 @@
+@page "/herramientas/editar/{Id:int}"
+@rendermode InteractiveServer
+@inject IRepositorioHerramientas _repoHerramientas
+@inject IRepositorioClasificaciones _repoClasificaciones
+@inject NavigationManager _navigation
+@inject IAlmacenFotos _fotos
+
+<PageTitle>Editar Herramienta - Agenda Taller</PageTitle>
+
+<div class="container py-3" style="max-width: 750px;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-0">✏️ Editar Herramienta</h2>
+            <small class="text-muted">Modifica los detalles, clasificación y stock</small>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick='() => _navigation.NavigateTo("herramientas")'>
+            &larr; Volver
+        </button>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="alert alert-danger alert-dismissible" role="alert">
+            <strong>No se pudo guardar:</strong> @_error
+            <button type="button" class="btn-close" @onclick="() => _error = null"></button>
+        </div>
+    }
+
+    @if (_cargando)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+            <p class="mt-2 text-muted">Cargando datos de la herramienta...</p>
+        </div>
+    }
+    else if (_herramienta == null)
+    {
+        <div class="alert alert-danger">
+            No se encontró la herramienta solicitada.
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm border p-4 bg-white">
+            <EditForm Model="_herramienta" OnValidSubmit="Guardar">
+                <DataAnnotationsValidator />
+
+                <div class="row mb-3">
+                    <label for="txtNombre" class="col-sm-3 col-form-label fw-bold">Nombre:</label>
+                    <div class="col-sm-9">
+                        <InputText id="txtNombre" class="form-control" @bind-Value="_herramienta.Nombre" />
+                        <ValidationMessage For="@(() => _herramienta.Nombre)" class="text-danger small" />
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <label for="txtDescripcion" class="col-sm-3 col-form-label fw-bold">Descripción / Marca:</label>
+                    <div class="col-sm-9">
+                        <InputTextArea id="txtDescripcion" class="form-control" @bind-Value="_herramienta.Descripcion" rows="2" />
+                        <ValidationMessage For="@(() => _herramienta.Descripcion)" class="text-danger small" />
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <label for="fileFoto" class="col-sm-3 col-form-label fw-bold">Foto:</label>
+                    <div class="col-sm-9">
+                        @if (!_quitarFoto && (_vistaPrevia ?? _herramienta.RutaFoto) is string srcFoto && !string.IsNullOrWhiteSpace(srcFoto))
+                        {
+                            <img src="@srcFoto" alt="Foto de la herramienta" class="rounded border mb-2 d-block"
+                                 style="max-width: 160px; max-height: 160px; object-fit: cover;" />
+                        }
+                        <InputFile id="fileFoto" class="form-control" accept="image/jpeg,image/png,image/webp,image/gif" OnChange="SeleccionarFoto" />
+                        <small class="text-muted">JPG, PNG, WEBP o GIF, máximo 5 MB (opcional).</small>
+                        @if (_errorFoto != null)
+                        {
+                            <div class="text-danger small">@_errorFoto</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_rutaOriginal) && _fotoBytes == null)
+                        {
+                            <div class="form-check mt-1">
+                                <input type="checkbox" class="form-check-input" id="chkQuitarFoto" @bind="_quitarFoto" />
+                                <label class="form-check-label small" for="chkQuitarFoto">Quitar la foto actual</label>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Tema 10 - Diapositiva 13: InputSelect para Clasificación -->
+                <div class="row mb-3">
+                    <label for="txtClasificacion" class="col-sm-3 col-form-label fw-bold">Clasificación:</label>
+                    <div class="col-sm-9">
+                        <InputSelect id="txtClasificacion" class="form-select" @bind-Value="_herramienta.ClasificacionId">
+                            @foreach (var clasif in _clasificaciones)
+                            {
+                                <option value="@clasif.Id">@clasif.Nombre</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="@(() => _herramienta.ClasificacionId)" class="text-danger small" />
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <label for="txtEstado" class="col-sm-3 col-form-label fw-bold">Estado:</label>
+                    <div class="col-sm-9">
+                        <InputSelect id="txtEstado" class="form-select" @bind-Value="_herramienta.Estado">
+                            @foreach (var estado in EstadosHerramienta.Todos)
+                            {
+                                <option value="@estado">@estado</option>
+                            }
+                        </InputSelect>
+                        <small class="text-muted">"En uso" se asigna y se retira automáticamente según los encargos pendientes.</small>
+                    </div>
+                </div>
+
+                <hr class="my-4" />
+
+                <div class="card bg-light p-3 mb-4">
+                    <div class="form-check form-switch mb-2">
+                        <InputCheckbox id="chkMultiple" class="form-check-input" @bind-Value="_herramienta.EsMultiple" disabled="@_usadaEnEncargos" />
+                        <label class="form-check-label fw-bold ms-2" for="chkMultiple">
+                            ¿Es objeto múltiple? (tornillos, conectores, clavos, etc.)
+                        </label>
+                    </div>
+
+                    @if (_usadaEnEncargos)
+                    {
+                        <small class="text-muted d-block">El tipo no se puede cambiar porque la herramienta ya se usó en encargos.</small>
+                    }
+
+                    @if (_herramienta.EsMultiple)
+                    {
+                        <div class="row mt-3 g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Cantidad actual en bodega:</label>
+                                <InputNumber class="form-control" @bind-Value="_herramienta.CantidadActual" min="0" />
+                                <ValidationMessage For="@(() => _herramienta.CantidadActual)" class="text-danger small" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Cantidad mínima (límite de alerta):</label>
+                                <InputNumber class="form-control" @bind-Value="_herramienta.CantidadMinima" min="0" />
+                                <ValidationMessage For="@(() => _herramienta.CantidadMinima)" class="text-danger small" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-bold">Mensaje de notificación de stock:</label>
+                                <InputText class="form-control" @bind-Value="_herramienta.MensajeAlerta" />
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <InputCheckbox id="chkAlerta" class="form-check-input" @bind-Value="_herramienta.AlertaActiva" />
+                                    <label class="form-check-label small" for="chkAlerta">
+                                        Alerta de stock activada 🔔
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-secondary" @onclick='() => _navigation.NavigateTo("herramientas")'>
+                        Cancelar
+                    </button>
+                    <button type="submit" class="btn btn-primary px-4" disabled="@_guardando">
+                        @(_guardando ? "Guardando..." : "Guardar Cambios")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private bool _cargando = true;
+    private bool _guardando;
+    private string? _error;
+    private Herramienta? _herramienta;
+    private List<Clasificacion> _clasificaciones = new();
+    private bool _usadaEnEncargos;
+    private string? _rutaOriginal;
+
+    // ---- Foto ----
+    private byte[]? _fotoBytes;
+    private string? _fotoTipo;
+    private string? _vistaPrevia;
+    private string? _errorFoto;
+    private bool _quitarFoto;
+
+    private async Task SeleccionarFoto(InputFileChangeEventArgs e)
+    {
+        _errorFoto = null;
+        _fotoBytes = null;
+        _fotoTipo = null;
+        _vistaPrevia = null;
+
+        var archivo = e.File;
+        if (!AlmacenFotos.TiposPermitidos.ContainsKey(archivo.ContentType))
+        {
+            _errorFoto = "Formato no permitido. Usa JPG, PNG, WEBP o GIF.";
+            return;
+        }
+        if (archivo.Size > AlmacenFotos.TamanoMaximo)
+        {
+            _errorFoto = "La imagen pesa más de 5 MB.";
+            return;
+        }
+
+        // Se lee en memoria al elegirla; el archivo solo se escribe en disco al guardar.
+        await using var stream = archivo.OpenReadStream(AlmacenFotos.TamanoMaximo);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+
+        _fotoBytes = ms.ToArray();
+        _fotoTipo = archivo.ContentType;
+        _quitarFoto = false;
+        _vistaPrevia = $"data:{_fotoTipo};base64,{Convert.ToBase64String(_fotoBytes)}";
+    }
+
+    // La herramienta se obtiene sin seguimiento (AsNoTracking): si el usuario pulsa Cancelar,
+    // los cambios del formulario se descartan y no llegan a la base de datos.
+    protected override async Task OnInitializedAsync()
+    {
+        _cargando = true;
+        try
+        {
+            _clasificaciones = await _repoClasificaciones.GetAll();
+            _herramienta = await _repoHerramientas.Get(Id);
+            _usadaEnEncargos = _herramienta?.EncargoHerramientas?.Any() == true;
+            _rutaOriginal = _herramienta?.RutaFoto;
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private async Task Guardar()
+    {
+        if (_herramienta == null) return;
+
+        _error = null;
+        _guardando = true;
+        string? rutaNueva = null;
+        try
+        {
+            if (_fotoBytes != null && _fotoTipo != null)
+            {
+                rutaNueva = await _fotos.Guardar(_fotoBytes, _fotoTipo);
+                _herramienta.RutaFoto = rutaNueva;
+            }
+            else if (_quitarFoto)
+            {
+                _herramienta.RutaFoto = null;
+            }
+
+            await _repoHerramientas.Update(_herramienta);
+
+            // La foto anterior solo se borra cuando el cambio ya quedó guardado.
+            if (_rutaOriginal != _herramienta.RutaFoto)
+            {
+                _fotos.Eliminar(_rutaOriginal);
+            }
+
+            _navigation.NavigateTo("herramientas");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+            _fotos.Eliminar(rutaNueva);
+            _herramienta.RutaFoto = _rutaOriginal;
+        }
+        finally
+        {
+            _guardando = false;
+        }
+    }
+}

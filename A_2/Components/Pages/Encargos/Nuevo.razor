@@ -1,0 +1,126 @@
+@page "/encargos/nuevo"
+@rendermode InteractiveServer
+@inject IRepositorioEncargos _repoEncargos
+@inject IRepositorioHerramientas _repoHerramientas
+@inject NavigationManager _navigation
+
+<PageTitle>Nuevo Encargo - Agenda Taller</PageTitle>
+
+<div class="container py-3" style="max-width: 800px;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-0">➕ Nuevo Encargo de Trabajo</h2>
+            <small class="text-muted">Completa los datos del encargo y selecciona las herramientas necesarias</small>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick='() => _navigation.NavigateTo("encargos")'>
+            &larr; Volver
+        </button>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="alert alert-danger alert-dismissible" role="alert">
+            <strong>No se pudo guardar:</strong> @_error
+            <button type="button" class="btn-close" @onclick="() => _error = null"></button>
+        </div>
+    }
+
+    <div class="card shadow-sm border p-4 bg-white">
+        <!-- Tema 10 - Diapositiva 9: Formulario de captura con EditForm y DataAnnotationsValidator -->
+        <EditForm Model="_encargo" OnValidSubmit="Guardar">
+            <DataAnnotationsValidator />
+
+            <div class="row mb-3">
+                <label for="txtCliente" class="col-sm-3 col-form-label fw-bold">Cliente:</label>
+                <div class="col-sm-9">
+                    <InputText id="txtCliente" class="form-control" @bind-Value="_encargo.Cliente" placeholder="Ej. Juan Pérez" />
+                    <ValidationMessage For="@(() => _encargo.Cliente)" class="text-danger small" />
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <label for="txtTrabajo" class="col-sm-3 col-form-label fw-bold">Trabajo:</label>
+                <div class="col-sm-9">
+                    <InputText id="txtTrabajo" class="form-control" @bind-Value="_encargo.TipoTrabajo" placeholder="Ej. Reparación de motor, soldadura, etc." />
+                    <ValidationMessage For="@(() => _encargo.TipoTrabajo)" class="text-danger small" />
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <label for="txtFecha" class="col-sm-3 col-form-label fw-bold">Fecha:</label>
+                <div class="col-sm-9">
+                    <InputDate id="txtFecha" class="form-control" @bind-Value="_encargo.Fecha"
+                               ParsingErrorMessage="Ingresa una fecha válida." />
+                    <ValidationMessage For="@(() => _encargo.Fecha)" class="text-danger small" />
+                </div>
+            </div>
+
+            <div class="row mb-3">
+                <label for="txtHora" class="col-sm-3 col-form-label fw-bold">Hora:</label>
+                <div class="col-sm-9">
+                    <InputDate Type="InputDateType.Time" id="txtHora" class="form-control" @bind-Value="_encargo.Hora"
+                               ParsingErrorMessage="Ingresa una hora válida." />
+                    <ValidationMessage For="@(() => _encargo.Hora)" class="text-danger small" />
+                </div>
+            </div>
+
+            <hr class="my-4" />
+
+            <!-- Sección de Herramientas y Materiales a utilizar -->
+            <h5 class="fw-bold mb-2">🛠️ Herramientas y Objetos a utilizar</h5>
+            <p class="text-muted small">Selecciona los artículos que se emplearán en este encargo. Para los objetos múltiples, indica la cantidad que se descontará del inventario.</p>
+
+            <SelectorHerramientas Herramientas="_herramientasDisponibles"
+                                  Seleccionadas="_herramientasSeleccionadas" />
+
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-danger" @onclick='() => _navigation.NavigateTo("encargos")'>
+                    Cancelar
+                </button>
+                <button type="submit" class="btn btn-primary px-4" disabled="@_guardando">
+                    @(_guardando ? "Guardando..." : "Guardar Encargo")
+                </button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private Encargo _encargo = new();
+    private List<Herramienta> _herramientasDisponibles = new();
+    private Dictionary<int, int> _herramientasSeleccionadas = new();
+    private string? _error;
+    private bool _guardando;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _herramientasDisponibles = await _repoHerramientas.GetAll();
+    }
+
+    private async Task Guardar()
+    {
+        _error = null;
+        _guardando = true;
+        try
+        {
+            var herramientasList = _herramientasSeleccionadas
+                .Select(kv => (HerramientaId: kv.Key, Cantidad: kv.Value))
+                .ToList();
+
+            await _repoEncargos.Add(_encargo, herramientasList);
+            _navigation.NavigateTo("encargos");
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Stock insuficiente, herramienta ya asignada, etc.: se recarga el inventario para
+            // mostrar los valores actuales y el usuario puede corregir su selección.
+            _error = ex.Message;
+            _encargo.EncargoHerramientas = null;
+            _herramientasDisponibles = await _repoHerramientas.GetAll();
+        }
+        finally
+        {
+            _guardando = false;
+        }
+    }
+}

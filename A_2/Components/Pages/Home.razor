@@ -1,0 +1,126 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject IRepositorioEncargos _repoEncargos
+@inject IRepositorioHerramientas _repoHerramientas
+@inject NavigationManager _navigation
+
+<PageTitle>Inicio - Agenda Taller</PageTitle>
+
+<div class="container py-4">
+    <div class="p-5 mb-4 bg-light rounded-3 shadow-sm border text-center">
+        <h1 class="display-5 fw-bold text-primary">¡Bienvenido! 👋</h1>
+        <p class="fs-4 text-secondary">Sistema Web de Gestión del Taller</p>
+        <p class="lead">Administra tus encargos de trabajo, asigna herramientas y controla el stock de tus materiales en tiempo real.</p>
+        <div class="d-flex justify-content-center gap-3 mt-4">
+            <button class="btn btn-primary btn-lg px-4" @onclick='() => _navigation.NavigateTo("encargos")'>
+                📋 Ver Encargos de Trabajo
+            </button>
+            <button class="btn btn-outline-secondary btn-lg px-4" @onclick='() => _navigation.NavigateTo("herramientas")'>
+                🛠️ Inventario de Herramientas
+            </button>
+        </div>
+    </div>
+
+    @if (_cargando)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+            <p class="mt-2 text-muted">Cargando datos del taller...</p>
+        </div>
+    }
+    else
+    {
+        <!-- Tarjetas de resumen -->
+        <div class="row g-4 mb-4">
+            <div class="col-md-4">
+                <div class="card border-primary shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <h6 class="card-subtitle mb-2 text-muted">Encargos Pendientes</h6>
+                        <h2 class="card-title display-4 fw-bold text-primary">@_totalPendientes</h2>
+                        <p class="card-text text-muted">Trabajos programados por realizar</p>
+                        <a href="encargos" class="btn btn-sm btn-outline-primary">Ir a Encargos &rarr;</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card border-success shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <h6 class="card-subtitle mb-2 text-muted">Herramientas en Inventario</h6>
+                        <h2 class="card-title display-4 fw-bold text-success">@_totalHerramientas</h2>
+                        <p class="card-text text-muted">Artículos y herramientas registradas</p>
+                        <a href="herramientas" class="btn btn-sm btn-outline-success">Ver Inventario &rarr;</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card @(_alertasStock.Any() ? "border-danger" : "border-secondary") shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <h6 class="card-subtitle mb-2 text-muted">Alertas de Stock Bajo</h6>
+                        <h2 class="card-title display-4 fw-bold @(_alertasStock.Any() ? "text-danger" : "text-secondary")">
+                            @_alertasStock.Count
+                        </h2>
+                        <p class="card-text text-muted">
+                            @(_alertasStock.Any() ? "¡Atención! Artículos por debajo del mínimo" : "Stock en niveles adecuados")
+                        </p>
+                        <a href="herramientas" class="btn btn-sm @(_alertasStock.Any() ? "btn-danger" : "btn-outline-secondary")">
+                            Revisar Stock &rarr;
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (_alertasStock.Any())
+        {
+            <div class="alert alert-warning shadow-sm border-warning" role="alert">
+                <h4 class="alert-heading">⚠️ Alerta de Stock Bajo en Bodega</h4>
+                <p>Los siguientes artículos múltiples tienen una cantidad menor al mínimo establecido:</p>
+                <hr>
+                <ul class="mb-0">
+                    @foreach (var h in _alertasStock)
+                    {
+                        <li>
+                            <strong>@h.Nombre:</strong> Solo quedan <span class="badge bg-danger">@h.CantidadActual</span> unidades (mínimo: @h.CantidadMinima).
+                            @if (!string.IsNullOrWhiteSpace(h.MensajeAlerta))
+                            {
+                                <em class="text-muted ms-2">Nota: "@h.MensajeAlerta"</em>
+                            }
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _cargando = true;
+    private int _totalPendientes = 0;
+    private int _totalHerramientas = 0;
+    private List<Herramienta> _alertasStock = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cargando = true;
+        try
+        {
+            var encargos = await _repoEncargos.GetAll();
+            _totalPendientes = encargos.Count(e => !e.IsCompleted);
+
+            var herramientas = await _repoHerramientas.GetAll();
+            _totalHerramientas = herramientas.Count;
+
+            _alertasStock = herramientas
+                .Where(h => h.EsMultiple && h.AlertaActiva && h.CantidadActual < h.CantidadMinima)
+                .ToList();
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+}

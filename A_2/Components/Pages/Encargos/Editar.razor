@@ -1,0 +1,199 @@
+@page "/encargos/editar/{Id:int}"
+@rendermode InteractiveServer
+@inject IRepositorioEncargos _repoEncargos
+@inject IRepositorioHerramientas _repoHerramientas
+@inject NavigationManager _navigation
+
+<PageTitle>Editar Encargo - Agenda Taller</PageTitle>
+
+<div class="container py-3" style="max-width: 800px;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-0">✏️ Editar Encargo de Trabajo</h2>
+            <small class="text-muted">Modifica los detalles del encargo y ajusta las herramientas asignadas</small>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick='() => _navigation.NavigateTo("encargos")'>
+            &larr; Volver
+        </button>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="alert alert-danger alert-dismissible" role="alert">
+            <strong>No se pudo guardar:</strong> @_error
+            <button type="button" class="btn-close" @onclick="() => _error = null"></button>
+        </div>
+    }
+
+    @if (_cargando)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+            <p class="mt-2 text-muted">Cargando datos del encargo...</p>
+        </div>
+    }
+    else if (_encargo == null)
+    {
+        <div class="alert alert-danger">
+            No se encontró el encargo solicitado.
+        </div>
+    }
+    else if (_encargo.IsCompleted)
+    {
+        <div class="alert alert-warning">
+            Este encargo ya está completado y no se puede editar. Regrésalo a pendiente desde la lista de encargos si necesitas modificarlo.
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm border p-4 bg-white">
+            <EditForm Model="_encargo" OnValidSubmit="Guardar">
+                <DataAnnotationsValidator />
+
+                <div class="row mb-3">
+                    <label for="txtCliente" class="col-sm-3 col-form-label fw-bold">Cliente:</label>
+                    <div class="col-sm-9">
+                        <InputText id="txtCliente" class="form-control" @bind-Value="_encargo.Cliente" />
+                        <ValidationMessage For="@(() => _encargo.Cliente)" class="text-danger small" />
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <label for="txtTrabajo" class="col-sm-3 col-form-label fw-bold">Trabajo:</label>
+                    <div class="col-sm-9">
+                        <InputText id="txtTrabajo" class="form-control" @bind-Value="_encargo.TipoTrabajo" />
+                        <ValidationMessage For="@(() => _encargo.TipoTrabajo)" class="text-danger small" />
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <label for="txtFecha" class="col-sm-3 col-form-label fw-bold">Fecha:</label>
+                    <div class="col-sm-9">
+                        <InputDate id="txtFecha" class="form-control" @bind-Value="_encargo.Fecha"
+                                   ParsingErrorMessage="Ingresa una fecha válida." />
+                        <ValidationMessage For="@(() => _encargo.Fecha)" class="text-danger small" />
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <label for="txtHora" class="col-sm-3 col-form-label fw-bold">Hora:</label>
+                    <div class="col-sm-9">
+                        <InputDate Type="InputDateType.Time" id="txtHora" class="form-control" @bind-Value="_encargo.Hora"
+                                   ParsingErrorMessage="Ingresa una hora válida." />
+                        <ValidationMessage For="@(() => _encargo.Hora)" class="text-danger small" />
+                    </div>
+                </div>
+
+                <hr class="my-4" />
+
+                <h5 class="fw-bold mb-2">🛠️ Herramientas y Objetos a utilizar</h5>
+                <p class="text-muted small">Al quitar una herramienta o reducir la cantidad, las piezas sobrantes regresan a bodega.</p>
+
+                <SelectorHerramientas Herramientas="_herramientasDisponibles"
+                                      Seleccionadas="_herramientasSeleccionadas"
+                                      Originales="_cantidadesOriginales"
+                                      EncargoId="Id" />
+
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-secondary" @onclick='() => _navigation.NavigateTo("encargos")'>
+                        Cancelar
+                    </button>
+                    <button type="submit" class="btn btn-primary px-4" disabled="@_guardando">
+                        @(_guardando ? "Guardando..." : "Guardar Cambios")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private bool _cargando = true;
+    private bool _guardando;
+    private string? _error;
+    private Encargo? _encargo;
+    private List<Herramienta> _herramientasDisponibles = new();
+    private Dictionary<int, int> _herramientasSeleccionadas = new();
+    private Dictionary<int, int> _cantidadesOriginales = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cargando = true;
+        try
+        {
+            await CargarDatos();
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    // El encargo se obtiene sin seguimiento (AsNoTracking): si el usuario cancela, nada de lo que
+    // escribió en el formulario llega a la base de datos.
+    private async Task CargarDatos()
+    {
+        _encargo = await _repoEncargos.Get(Id);
+        _herramientasDisponibles = await _repoHerramientas.GetAll();
+
+        _herramientasSeleccionadas.Clear();
+        _cantidadesOriginales.Clear();
+        if (_encargo?.EncargoHerramientas != null)
+        {
+            foreach (var rel in _encargo.EncargoHerramientas)
+            {
+                _herramientasSeleccionadas[rel.HerramientaId] = rel.CantidadUsada;
+                _cantidadesOriginales[rel.HerramientaId] = rel.CantidadUsada;
+            }
+        }
+    }
+
+    private async Task Guardar()
+    {
+        if (_encargo == null) return;
+
+        _error = null;
+        _guardando = true;
+        try
+        {
+            var herramientasList = _herramientasSeleccionadas
+                .Select(kv => (HerramientaId: kv.Key, Cantidad: kv.Value))
+                .ToList();
+
+            await _repoEncargos.Update(_encargo, herramientasList);
+            _navigation.NavigateTo("encargos");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _error = ex.Message;
+            // Se recarga el inventario para mostrar el stock actual; se conservan los datos
+            // generales que el usuario ya escribió.
+            var cliente = _encargo.Cliente;
+            var trabajo = _encargo.TipoTrabajo;
+            var fecha = _encargo.Fecha;
+            var hora = _encargo.Hora;
+            var seleccion = new Dictionary<int, int>(_herramientasSeleccionadas);
+
+            await CargarDatos();
+
+            if (_encargo != null)
+            {
+                _encargo.Cliente = cliente;
+                _encargo.TipoTrabajo = trabajo;
+                _encargo.Fecha = fecha;
+                _encargo.Hora = hora;
+                _herramientasSeleccionadas.Clear();
+                foreach (var kv in seleccion) _herramientasSeleccionadas[kv.Key] = kv.Value;
+            }
+        }
+        finally
+        {
+            _guardando = false;
+        }
+    }
+}

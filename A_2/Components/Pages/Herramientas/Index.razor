@@ -1,0 +1,303 @@
+@page "/herramientas"
+@rendermode InteractiveServer
+@inject IRepositorioHerramientas _repoHerramientas
+@inject IRepositorioClasificaciones _repoClasificaciones
+@inject NavigationManager _navigation
+@inject IJSRuntime _js
+@inject IAlmacenFotos _fotos
+
+<PageTitle>Inventario de Herramientas - Agenda Taller</PageTitle>
+
+<div class="container py-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-0">🛠️ Inventario de Herramientas</h2>
+            <small class="text-muted">Control de herramientas, stock de materiales y estado de asignación</small>
+        </div>
+        <div>
+            <button class="btn btn-primary" @onclick='() => _navigation.NavigateTo("herramientas/nueva")'>
+                ➕ Nueva Herramienta
+            </button>
+        </div>
+    </div>
+
+    @if (_error != null)
+    {
+        <div class="alert alert-danger alert-dismissible" role="alert">
+            @_error
+            <button type="button" class="btn-close" @onclick="() => _error = null"></button>
+        </div>
+    }
+
+    <!-- Filtro por clasificación -->
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <span class="small fw-bold text-muted">Filtrar por clasificación:</span>
+        <button class="btn btn-sm @(_filtroClasificacion == 0 ? "btn-dark" : "btn-outline-secondary")"
+                @onclick="() => _filtroClasificacion = 0">
+            Todas (@_herramientas.Count)
+        </button>
+        @foreach (var clasif in _clasificaciones)
+        {
+            var totalEnClasif = _herramientas.Count(h => h.ClasificacionId == clasif.Id);
+            <button class="btn btn-sm @(_filtroClasificacion == clasif.Id ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => _filtroClasificacion = clasif.Id">
+                @clasif.Nombre (@totalEnClasif)
+            </button>
+        }
+    </div>
+
+    @if (_cargando)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Cargando...</span>
+            </div>
+            <p class="mt-2 text-muted">Cargando inventario...</p>
+        </div>
+    }
+    else
+    {
+        var listaFiltrada = _filtroClasificacion == 0
+            ? _herramientas
+            : _herramientas.Where(h => h.ClasificacionId == _filtroClasificacion).ToList();
+
+        @if (!listaFiltrada.Any())
+        {
+            <div class="alert alert-info text-center py-4">
+                <h5>No hay herramientas registradas en esta categoría.</h5>
+                <p class="mb-0 text-muted">Haz clic en 'Nueva Herramienta' para agregar artículos.</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive shadow-sm rounded border bg-white">
+                <!-- Tema 10 - Diapositiva 8 y 12: Tabla con Bootstrap y campo Clasificación incluido -->
+                <table class="table table-striped table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Herramienta / Artículo</th>
+                            <th>Clasificación</th>
+                            <th>Estado</th>
+                            <th>Stock / Cantidad</th>
+                            <th>Estatus de Asignación</th>
+                            <th class="text-end" style="width: 160px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var h in listaFiltrada)
+                        {
+                            var relacionesActivas = h.EncargoHerramientas?
+                                .Where(eh => eh.Encargo != null && !eh.Encargo.IsCompleted)
+                                .ToList() ?? new();
+
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        @if (!string.IsNullOrWhiteSpace(h.RutaFoto))
+                                        {
+                                            <img src="@h.RutaFoto" alt="@h.Nombre" class="rounded border"
+                                                 style="width: 48px; height: 48px; object-fit: cover;" />
+                                        }
+                                        <div>
+                                            <strong>@h.Nombre</strong>
+                                            @if (!string.IsNullOrWhiteSpace(h.Descripcion))
+                                            {
+                                                <div class="text-muted small">@h.Descripcion</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <!-- Diapositiva 12: Mostrar clasificación vinculada (Include) -->
+                                    <span class="badge bg-secondary">
+                                        @(h.Clasificacion?.Nombre ?? "Sin categoría")
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge @(h.Estado == EstadosHerramienta.Disponible ? "bg-success" : h.Estado == EstadosHerramienta.EnUso ? "bg-info text-dark" : "bg-warning text-dark")">
+                                        @h.Estado
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (h.EsMultiple)
+                                    {
+                                        var stockBajo = h.CantidadActual < h.CantidadMinima;
+                                        <div>
+                                            <strong class="@(stockBajo ? "text-danger" : "text-primary")">
+                                                📦 @h.CantidadActual pzas
+                                            </strong>
+                                            <span class="small text-muted">(mín: @h.CantidadMinima)</span>
+                                            @if (stockBajo)
+                                            {
+                                                <span class="badge bg-danger ms-1">⚠️ Bajo</span>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">Herramienta única</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (!h.EsMultiple && relacionesActivas.Any())
+                                    {
+                                        var enc = relacionesActivas.First().Encargo;
+                                        <span class="badge bg-info text-dark">
+                                            📌 Asignada a: @(enc?.Cliente ?? "Cliente") (@(enc?.TipoTrabajo ?? ""))
+                                        </span>
+                                    }
+                                    else if (h.EsMultiple && relacionesActivas.Any())
+                                    {
+                                        var totalUso = relacionesActivas.Sum(r => r.CantidadUsada);
+                                        if (totalUso > 0)
+                                        {
+                                            var resumen = string.Join(", ", relacionesActivas.Select(r => $"{r.CantidadUsada} para {r.Encargo?.Cliente}"));
+                                            <span class="badge bg-warning text-dark" title="@resumen">
+                                                📌 En uso: @totalUso pzas (@resumen)
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">Sin uso actual</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">Sin asignar</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        @if (h.EsMultiple)
+                                        {
+                                            <button class="btn btn-outline-success" @onclick="() => AbrirModalCantidad(h)" title="Ajustar stock">
+                                                📦 ±
+                                            </button>
+                                        }
+                                        <button class="btn btn-outline-primary" @onclick='() => _navigation.NavigateTo($"herramientas/editar/{h.Id}")' title="Editar">
+                                            ✏️
+                                        </button>
+                                        <button class="btn btn-outline-danger" @onclick="() => Eliminar(h)" title="Eliminar">
+                                            🗑️
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+<!-- Modal para ajuste rápido de cantidad en objetos múltiples -->
+@if (_herramientaAjustar != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">📦 Ajustar Stock: @_herramientaAjustar.Nombre</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => _herramientaAjustar = null"></button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="text-muted">Ajuste rápido de piezas en bodega:</p>
+                    <div class="d-flex justify-content-center gap-2 mb-3">
+                        <button class="btn btn-outline-secondary" @onclick="() => ModificarCantidadModal(-10)">-10</button>
+                        <button class="btn btn-outline-secondary" @onclick="() => ModificarCantidadModal(-5)">-5</button>
+                        <button class="btn btn-outline-secondary" @onclick="() => ModificarCantidadModal(-1)">-1</button>
+                        <span class="fs-3 fw-bold px-3">@_cantidadModal</span>
+                        <button class="btn btn-outline-secondary" @onclick="() => ModificarCantidadModal(+1)">+1</button>
+                        <button class="btn btn-outline-secondary" @onclick="() => ModificarCantidadModal(+5)">+5</button>
+                        <button class="btn btn-outline-secondary" @onclick="() => ModificarCantidadModal(+10)">+10</button>
+                    </div>
+                    <div class="form-group w-50 mx-auto">
+                        <label class="form-label small text-muted">O ingresa la cantidad manual:</label>
+                        <input type="number" class="form-control text-center" min="0" @bind="_cantidadModal" />
+                    </div>
+                    <small class="text-muted mt-2 d-block">Cantidad mínima de alerta: @_herramientaAjustar.CantidadMinima</small>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => _herramientaAjustar = null">Cancelar</button>
+                    <button type="button" class="btn btn-primary" @onclick="GuardarCantidadModal">Guardar Stock</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _cargando = true;
+    private int _filtroClasificacion = 0;
+    private List<Herramienta> _herramientas = new();
+    private List<Clasificacion> _clasificaciones = new();
+    private Herramienta? _herramientaAjustar = null;
+    private int _cantidadModal = 0;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatos();
+    }
+
+    private async Task CargarDatos()
+    {
+        _cargando = true;
+        try
+        {
+            _clasificaciones = await _repoClasificaciones.GetAll();
+            _herramientas = await _repoHerramientas.GetAll();
+        }
+        finally
+        {
+            _cargando = false;
+        }
+    }
+
+    private void AbrirModalCantidad(Herramienta h)
+    {
+        _herramientaAjustar = h;
+        _cantidadModal = h.CantidadActual;
+    }
+
+    private void ModificarCantidadModal(int delta)
+    {
+        _cantidadModal = Math.Max(0, _cantidadModal + delta);
+    }
+
+    private async Task GuardarCantidadModal()
+    {
+        if (_herramientaAjustar != null)
+        {
+            await _repoHerramientas.ActualizarCantidad(_herramientaAjustar.Id, Math.Max(0, _cantidadModal));
+            _herramientaAjustar = null;
+            await CargarDatos();
+        }
+    }
+
+    private async Task Eliminar(Herramienta h)
+    {
+        var usosCompletados = h.EncargoHerramientas?.Count(eh => eh.Encargo != null && eh.Encargo.IsCompleted) ?? 0;
+        var mensaje = $"¿Eliminar \"{h.Nombre}\" del inventario?";
+        if (usosCompletados > 0)
+        {
+            mensaje += $" También se quitará del historial de {usosCompletados} encargo(s) completado(s).";
+        }
+
+        if (!await _js.InvokeAsync<bool>("confirm", mensaje)) return;
+
+        _error = null;
+        try
+        {
+            await _repoHerramientas.Delete(h.Id);
+            _fotos.Eliminar(h.RutaFoto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Ej.: la herramienta está asignada a un encargo pendiente.
+            _error = ex.Message;
+        }
+        await CargarDatos();
+    }
+}
